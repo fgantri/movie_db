@@ -1,4 +1,4 @@
-from istorage import IStorage
+from movie_db.storage.istorage import IStorage
 import os
 
 
