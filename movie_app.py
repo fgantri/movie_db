@@ -3,6 +3,7 @@ import statistics
 
 import input_validator
 from output_formatter import call_with_vertical_margin
+from omdb_service import OMDbService
 
 
 def exit_app():
@@ -24,13 +25,18 @@ def print_movies(movies):
 class MovieApp:
     """Movie database application that provides various operations on a movie collection."""
 
-    def __init__(self, storage):
+    def __init__(self, storage, omdb_api_key=None):
         """Initialize the MovieApp with a storage backend.
         
         Args:
             storage: An implementation of IStorage interface
+            omdb_api_key: Optional API key for the OMDb API
         """
         self._storage = storage
+        self._omdb_api_key = omdb_api_key
+        self._omdb_service = None
+        if omdb_api_key:
+            self._omdb_service = OMDbService(omdb_api_key)
         # Initialize movies cache
         self._refresh_movies_cache()
         self._menu = {
@@ -44,7 +50,8 @@ class MovieApp:
             "7": (self._command_search_movies, "Search movie"),
             "8": (self._command_sort_movies_by_rating, "Movies sorted by rating"),
             "9": (self._command_sort_movies_by_year, "Movies sorted by year"),
-            "10": (self._command_filter_movies, "Filter movies")
+            "10": (self._command_filter_movies, "Filter movies"),
+            "11": (self._command_search_omdb, "Search movie on OMDb API")
         }
 
     def _refresh_movies_cache(self):
@@ -57,7 +64,7 @@ class MovieApp:
         while True:
             call_with_vertical_margin(self._print_menu)
             try:
-                option = input("Enter choice (0-10): ")
+                option = input("Enter choice (0-11): ")
                 cmd = self._menu[option][0]
             except KeyError:
                 print("Invalid choice")
@@ -80,22 +87,88 @@ class MovieApp:
         print_movies(self._movies)
 
     def _command_add_movie(self):
-        """Asks the user to enter a movie name, a rating, a year and adds it to the database"""
-        title = input_validator.get_input(prompt="Enter new movie name: ",
+        """Asks the user to enter a movie name and adds it to the database
+        using data fetched from the OMDb API."""
+        title = input_validator.get_input(prompt="Enter movie name: ",
                                           empty_msg="Movie name must not be empty.")
-        # returns float input but needing int
-        year = int(input_validator.get_number_input(prompt="Enter new movie year: ",
+        
+        # Initialize OMDb service if not done yet
+        if not self._omdb_service:
+            if not self._omdb_api_key:
+                api_key = input_validator.get_input(
+                    prompt="Please enter your OMDb API key: ",
+                    empty_msg="API key must not be empty."
+                )
+                self._omdb_api_key = api_key
+                self._omdb_service = OMDbService(api_key)
+            else:
+                self._omdb_service = OMDbService(self._omdb_api_key)
+        
+        try:
+            print(f"Searching for '{title}' on OMDb API...")
+            movie_data = self._omdb_service.search_movie_by_title(title)
+            
+            if not movie_data:
+                print(f"No movie found with title '{title}'.")
+                add_manually = input_validator.get_binary_input("Would you like to add the movie manually")
+                
+                if add_manually:
+                    # Fall back to manual entry if movie not found
+                    year = int(input_validator.get_number_input(prompt="Enter movie year: ",
+                                                        error_msg="Please enter a valid year"))
+                    rating = input_validator.get_number_input(prompt="Enter movie rating: ",
+                                                          error_msg="Please enter a valid rating")
+                    poster = input_validator.get_input(prompt="Enter movie poster URL (optional): ",
+                                                   empty_msg="")
+                    poster = poster if poster else "N/A"
+                else:
+                    return
+            else:
+                # Use the data from the API
+                print("\nMovie found:")
+                print(f"Title: {movie_data['title']}")
+                print(f"Year: {movie_data['year']}")
+                print(f"Rating: {movie_data['rating']}")
+                
+                # Confirm with user
+                add_to_db = input_validator.get_binary_input("Do you want to add this movie to your database")
+                if not add_to_db:
+                    return
+                
+                title = movie_data['title']
+                year = movie_data['year']
+                rating = movie_data['rating']
+                poster = movie_data['poster']
+            
+            if self._storage.add_movie(title, year, rating, poster):
+                print(f"Movie '{title}' successfully added")
+                # update movies cache
+                self._refresh_movies_cache()
+            else:
+                print(f"Movie '{title}' already exists!")
+                
+        except Exception as e:
+            print(f"Error fetching movie data: {str(e)}")
+            print("Please check your internet connection or API key and try again.")
+            print("Alternatively, try adding the movie manually.")
+            add_manually = input_validator.get_binary_input("Would you like to add the movie manually")
+            
+            if add_manually:
+                # Fall back to manual entry if there's an API error
+                year = int(input_validator.get_number_input(prompt="Enter movie year: ",
                                                     error_msg="Please enter a valid year"))
-        rating = input_validator.get_number_input(prompt="Enter new movie rating: ",
-                                                  error_msg="Please enter a valid rating")
-        poster = input_validator.get_input(prompt="Enter new movie poster: ",
-                                           empty_msg="Movie poster must not be empty.")
-        if self._storage.add_movie(title, year, rating, poster):
-            print(f"Movie '{title}' successfully added")
-            # update movies cache
-            self._refresh_movies_cache()
-        else:
-            print(f"Movie '{title}' already exists!")
+                rating = input_validator.get_number_input(prompt="Enter movie rating: ",
+                                                      error_msg="Please enter a valid rating")
+                poster = input_validator.get_input(prompt="Enter movie poster URL (optional): ",
+                                               empty_msg="")
+                poster = poster if poster else "N/A"
+                
+                if self._storage.add_movie(title, year, rating, poster):
+                    print(f"Movie '{title}' successfully added")
+                    # update movies cache
+                    self._refresh_movies_cache()
+                else:
+                    print(f"Movie '{title}' already exists!")
 
     def _command_delete_movie(self):
         """Asks the user to enter a movie name, and delete it.
@@ -238,3 +311,55 @@ class MovieApp:
         for opt_key, option in self._menu.items():
             _, opt_description = option
             print(f"{opt_key}. {opt_description}")
+
+    def _command_search_omdb(self):
+        """Search for a movie using the OMDb API and add it to the database if found."""
+        if not self._omdb_service:
+            if not self._omdb_api_key:
+                api_key = input_validator.get_input(
+                    prompt="Please enter your OMDb API key: ",
+                    empty_msg="API key must not be empty."
+                )
+                self._omdb_api_key = api_key
+                self._omdb_service = OMDbService(api_key)
+            else:
+                self._omdb_service = OMDbService(self._omdb_api_key)
+        
+        search_term = input_validator.get_input(
+            prompt="Enter movie title to search: ",
+            empty_msg="Movie title must not be empty."
+        )
+        
+        try:
+            print(f"Searching for '{search_term}' on OMDb API...")
+            movie_data = self._omdb_service.search_movie_by_title(search_term)
+            
+            if not movie_data:
+                print(f"No movie found with title '{search_term}'.")
+                return
+            
+            print("\nMovie found:")
+            print(f"Title: {movie_data['title']}")
+            print(f"Year: {movie_data['year']}")
+            print(f"Rating: {movie_data['rating']}")
+            print(f"Director: {movie_data['director']}")
+            print(f"Actors: {movie_data['actors']}")
+            print(f"Plot: {movie_data['plot']}")
+            
+            add_to_db = input_validator.get_binary_input("Do you want to add this movie to your database")
+            
+            if add_to_db:
+                title = movie_data['title']
+                year = movie_data['year']
+                rating = movie_data['rating']
+                poster = movie_data['poster']
+                
+                if self._storage.add_movie(title, year, rating, poster):
+                    print(f"Movie '{title}' successfully added to your database")
+                    # update movies cache
+                    self._refresh_movies_cache()
+                else:
+                    print(f"Movie '{title}' already exists in your database!")
+        except Exception as e:
+            print(f"Error fetching movie data: {str(e)}")
+            print("Please check your internet connection or API key and try again.")

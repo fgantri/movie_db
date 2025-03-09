@@ -8,16 +8,18 @@ from storage_csv import StorageCsv
 
 def print_usage():
     """Print usage instructions"""
-    print("Usage: python main.py [storage_type]")
+    print("Usage: python main.py [storage_type] [omdb_api_key]")
     print("  storage_type: 'csv' or 'json' (default: csv)")
+    print("  omdb_api_key: Your OMDb API key (optional)")
     print("")
-    print("Example: python main.py json")
+    print("Example: python main.py json abcd1234")
 
 
 def main():
     """Entry point for the movie database application"""
     # Parse command line arguments for storage type
     storage_type = "csv"  # Default storage type
+    omdb_api_key = None  # Default is no API key
     
     if len(sys.argv) > 1:
         arg = sys.argv[1].lower()
@@ -27,6 +29,10 @@ def main():
             print(f"Unknown storage type: {arg}")
             print_usage()
             return
+    
+    # Check for API key
+    if len(sys.argv) > 2:
+        omdb_api_key = sys.argv[2]
     
     # Initialize the appropriate storage backend
     try:
@@ -40,7 +46,9 @@ def main():
             print(f"Using JSON storage: {file_path}")
         
         # Run the application
-        movie_app = MovieApp(storage)
+        movie_app = MovieApp(storage, omdb_api_key)
+        if omdb_api_key:
+            print(f"OMDb API integration enabled")
         movie_app.run()
     except Exception as e:
         print(f"An error occurred while starting the application: {str(e)}")
