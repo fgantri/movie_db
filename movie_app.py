@@ -1,5 +1,6 @@
 import random
 import statistics
+import os
 
 import input_validator
 from output_formatter import call_with_vertical_margin
@@ -49,9 +50,10 @@ class MovieApp:
             "6": (self._command_print_random_movie, "Random movie"),
             "7": (self._command_search_movies, "Search movie"),
             "8": (self._command_sort_movies_by_rating, "Movies sorted by rating"),
-            "9": (self._command_sort_movies_by_year, "Movies sorted by year"),
-            "10": (self._command_filter_movies, "Filter movies"),
-            "11": (self._command_search_omdb, "Search movie on OMDb API")
+            "9": (self._command_generate_website, "Generate website"),
+            "10": (self._command_sort_movies_by_year, "Movies sorted by year"),
+            "11": (self._command_filter_movies, "Filter movies"),
+            "12": (self._command_search_omdb, "Search movie on OMDb API")
         }
 
     def _refresh_movies_cache(self):
@@ -64,7 +66,7 @@ class MovieApp:
         while True:
             call_with_vertical_margin(self._print_menu)
             try:
-                option = input("Enter choice (0-11): ")
+                option = input("Enter choice (0-12): ")
                 cmd = self._menu[option][0]
             except KeyError:
                 print("Invalid choice")
@@ -363,3 +365,74 @@ class MovieApp:
         except Exception as e:
             print(f"Error fetching movie data: {str(e)}")
             print("Please check your internet connection or API key and try again.")
+
+    def _command_generate_website(self):
+        """Generate a website that displays all movies in the database."""
+        if not self._movies:
+            print("No movies in the database. Add some movies first.")
+            return
+            
+        # Define the website title
+        website_title = "My Movie Collection"
+        
+        # Create the movie grid HTML
+        movie_grid_html = ""
+        for movie in self._movies:
+            title = movie["title"]
+            year = movie["year"]
+            rating = movie["rating"]
+            poster = movie.get("poster", "")
+            
+            # Default poster for movies without a poster URL
+            if not poster or poster == "N/A":
+                poster = "https://via.placeholder.com/300x450?text=No+Poster+Available"
+                
+            movie_grid_html += f'''
+            <li>
+                <div class="movie">
+                    <img class="movie-poster" src="{poster}" alt="{title} poster">
+                    <div class="movie-title">{title}</div>
+                    <div class="movie-year">{year}</div>
+                    <div class="movie-rating">⭐ {rating}</div>
+                </div>
+            </li>'''
+        
+        # Create templates directory if it doesn't exist
+        templates_dir = "templates"
+        if not os.path.exists(templates_dir):
+            os.makedirs(templates_dir)
+            
+        # Ensure the template files exist
+        template_path = os.path.join(templates_dir, "movie_template.html")
+        css_path = os.path.join(templates_dir, "style.css")
+        
+        if not os.path.exists(template_path):
+            print(f"Template file not found: {template_path}")
+            print("Please ensure the template files exist in the templates directory.")
+            return
+            
+        # Read template from external file
+        try:
+            with open(template_path, "r") as f:
+                template = f.read()
+                
+            # Replace the placeholders
+            html_content = template.replace("__TEMPLATE_TITLE__", website_title)
+            html_content = html_content.replace("__TEMPLATE_MOVIE_GRID__", movie_grid_html)
+            
+            # Write the HTML file
+            with open("index.html", "w") as f:
+                f.write(html_content)
+                
+            # Copy CSS file to the project root if it doesn't exist
+            if not os.path.exists("style.css") and os.path.exists(css_path):
+                with open(css_path, "r") as src_file:
+                    css_content = src_file.read()
+                    
+                with open("style.css", "w") as dest_file:
+                    dest_file.write(css_content)
+                    
+            print("Website was generated successfully.")
+        except Exception as e:
+            print(f"An error occurred while generating the website: {str(e)}")
+            print("Please ensure all template files are accessible.")
